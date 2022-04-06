@@ -13,10 +13,6 @@
  *  - Teclado numerico
  *  - Display LCD 16x2
  *  - Buzzer
- *  - 3x leds:
- *    - 1x led vermelha
- *    - 1x led amarela
- *    - 1x led verde
  *  - Jumpers (muitos)
  * 
  * 
@@ -24,7 +20,7 @@
 #include <Keypad.h>
 #include <LiquidCrystal.h>
 
-#define DEBUG false
+#define DEBUG true
 
 /*
  ********************************************************
@@ -32,48 +28,13 @@
  *******************************************************
 */
 // Define senha de ativacao
-const char senha_real[6] = {'3','3', '4', '1', '4', '8'};
+const char senha_real[6] = {'2','2', '2', '2', '2', '2'};
 
 // Define variavel que guardara a senha digitada
 char senha[6] = {'*', '*', '*', '*', '*', '*'};
 
 //
 int senha_correta = 0;
-
-
-/*
- ********************************************************
- *      Define dados estaticos referente ao desarme da bomba
- *******************************************************
-*/
-// 1 = desarmado com sucesso | 0 = bomba nao desarmada
-// int defuse = 0;
-
-// Fios
-struct Fios {
-  const int fio_certo_in;
-  const int fio_certo_out;
-  const int fio_errado_in[1];
-  const int fio_errado_out;
-  int defuse;
-};
-
-// Instancia os fios
-struct Fios fios = {28, 29, 30, 32, 31};
-
-/*
- ********************************************************
- *      Define estrutura de dados referente aos leds
- *******************************************************
-*/
-struct Led {
-  const int vermelho;                   // Pino do led vermelho
-  const int amarelo;                    // Pino do led amarelo
-  const int verde;                      // Pino do led verde
- };
- 
-// Define pinos dos leds (vermelho, amarelo, verde)
-struct Led led = { A8, A9, A10};
 
 /*
  ********************************************************
@@ -100,10 +61,10 @@ const byte ROWS = 4, COLS = 4; //four rows
 byte rowPins[ROWS] = {14, 15, 16, 17};
 byte colPins[COLS] = {18, 19, 20, 21};
 char keys[ROWS][COLS] = {
-    {'1','2','A','3'},
-    {'4','5','B','6'},
-    {'7','8','C','9'},
-    {'*','0','D','#'}
+    {'1','2','3','A'},
+    {'4','5','6','B'},
+    {'7','8','8','C'},
+    {'*','0','#','D'}
 };
 
 // Instancia objeto KeyPad
@@ -116,19 +77,19 @@ Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
  O circuito:
  * LCD VSS to ground
  * LCD VDD to +5V
- * LCD V0 to ground
+ * LCD V0 to ground (Potenciometer with V0 cable on middle)
  * LCD RS pin to digital pin 0
  * LCD R/W pin to ground
  * LCD E (Enable) pin to digital pin 1
  * LCD D0,1,2,3 leave with nothing
  * LCD D4 pin to digital pin 2
- * LCD D5 pin to digital pin 3
+ * LCD D5 pin to digital pin 377
  * LCD D6 pin to digital pin 4
  * LCD D7 pin to digital pin 5
  * LCD A pin to +5V with an 10k resistor (to lower to 3.3v)
  * LCD K pin to ground
 */
-const int rs = A7, en = A6, d4 = A5, d5 = A4, d6 = A3, d7 = A2;
+const int rs = 2, en = 3, d4 = 7, d5 = 6, d6 = 5, d7 = 4;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 /*
@@ -136,7 +97,12 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
  *          Define buzzer
  *******************************************************
  */
-const int buzzer = A0;
+const int buzzer = 8;
+
+//
+// Faz mapeamento dos fios de defuse
+const int fios_out[7] = {A14, A12, A10, A8, A6, A4, A2};
+const int fios_in[7] = {A13, A11, A9, A7, A5, A3, A1};
 
 /*
  *********************************************************************************
@@ -251,16 +217,6 @@ void inicializando_display() {
 }
 
 /*
- *  Funcao que faz o led piscar
- *  STATUS: finalizado
-*/
-void pisca_led(int led, int tempo_delay=25) {
-  pinMode(led, OUTPUT);
-  delay(tempo_delay);
-  pinMode(led, INPUT);
-}
-
-/*
  *  Funcao responsavel por alertar que uma bomba explodiu
  *  STATUS: finalizado
 */
@@ -274,8 +230,6 @@ void bomba_explodiu() {
   
   // Faz alerta de bomba explodida (som e luz)
   while (true) {
-    pinMode(led.vermelho, OUTPUT);
-    pinMode(led.amarelo, OUTPUT);
     beep();
   }
 
@@ -288,37 +242,50 @@ void bomba_explodiu() {
  *  STATUS: em andamento
 */
 void defuse() {
-  // Configura fios de desarme certos
-  pinMode(fios.fio_certo_out, OUTPUT);
-  pinMode(fios.fio_certo_in, INPUT);
-
-  // Configura fios de desarme errados
-  pinMode(fios.fio_errado_out, OUTPUT);
-  pinMode(fios.fio_errado_in[0], INPUT);  
-  pinMode(fios.fio_errado_in[1], INPUT);
-
-  // Faz leitura do fios errados
-  digitalWrite(fios.fio_errado_out, 1);
-  int wrong_wires[2] = { digitalRead(fios.fio_errado_in[0]), digitalRead(fios.fio_errado_in[1]) };
-
-  // Faz leitura do fio certo
-  digitalWrite(fios.fio_certo_out, 1);
-  int defuse_wire = digitalRead(fios.fio_certo_in);
-
-  // Se o fio errado nao estiver comunicando...
-  // entao a bomba foi desarmada incorretamente / explodiu
-  if ((wrong_wires[0] != 1) || (wrong_wires[1] != 1)) {
-     bomba_explodiu();
+  // Fio certo A5 / A4
+  // Fio errado: A14/13, A12/11, A10/9, A7/6, A3/2, A1/0
+  //
+  if (DEBUG) {
+    Serial.print("$ Processando cabo errado: A14 | Valor: ");
+    Serial.println(analogRead(A13));
+    Serial.print("$ Processando cabo errado: A12 | Valor: ");
+    Serial.println(analogRead(A11));
+    Serial.print("$ Processando cabo errado: A10 | Valor: ");
+    Serial.println(analogRead(A9));
+    Serial.print("$ Processando cabo errado: A7 | Valor: ");
+    Serial.println(analogRead(A6));
+    Serial.print("# Processando cabo certo: A5 | Valor: ");
+    Serial.println(analogRead(A4));
+    Serial.print("$ Processando cabo errado: A3 | Valor: ");
+    Serial.println(analogRead(A2));
+    Serial.print("$ Processando cabo errado: A1 | Valor: ");
+    Serial.println(analogRead(A0));
+    Serial.println();
+    Serial.println();
   }
 
-  // Se fio certo nao estiver comunicando...
-  // entao a bomba foi desarmada com sucesso
-  if ((defuse_wire != 1) && ((wrong_wires[0] == 1) || (wrong_wires[1] == 1))) {
+  // Verifica cabos errados
+  if (analogRead(A13) <= 800) {         // Emissor A14
+    bomba_explodiu();
+//  } else if (analogRead(A11) <= 800) {  // Emissor A12
+//    bomba_explodiu();
+  } else if (analogRead(A9) <= 800) {   // Emissor A10
+    bomba_explodiu();
+  } else if (analogRead(A6) <= 800) {   // Emissor A7
+    bomba_explodiu();
+  } else if (analogRead(A2) <= 800) {   // Emissor A3
+    bomba_explodiu();
+  } else if (analogRead(A0) <= 800) {   // Emissor A1
+    bomba_explodiu();
+  }
+
+  // Verifica cabo certo
+  if (analogRead(A4) < 1020) {          // Emissor A5
     lcd.setCursor(0, 1);
     lcd.print("Defused");
     exit(0);
   }
-  
+
 }
 
 /*
@@ -405,38 +372,33 @@ void timer() {
         if ((temporizador.hours == 0) && (temporizador.minutes == 0)) {  
           if (temporizador.seconds < 10) { // Ultimos 10 segundos
             for (int i=0; i <10; i++) {
-              pisca_led(led.amarelo);
               beep();
               delay(100); // Delay de 1s
             }        
           } else if (temporizador.seconds < 20) { // Ultimos 20 segundos
             for (int i=0; i <7; i++) {
-              pisca_led(led.amarelo);
               beep();
               delay(150); // Delay de 1s
             }     
            } else if (temporizador.seconds < 30) { // Ultimos 30 segundos
             for (int i=0; i <5; i++) {
-              pisca_led(led.amarelo);
               beep();
               delay(200); // Delay de 1s
             }     
           } else { // Ultimos 40 segundos
             for (int i=0; i <4; i++) {
-              pisca_led(led.amarelo);
               beep();
               delay(250); // Delay de 1s
             }
           }
           
         } else { // Se nao, pisque apenas uma vez
-            pisca_led(led.amarelo);
             beep();
 
-            // Delay de 1s - 25 milisegundos do beep e 25 milisegundos do led
-            delay(temporizador.time_interval-(25+25));
+            delay(temporizador.time_interval-(25+25+25));
         }        
     }
+    // Fim do 'timer'
 } // Fim do 'timer'
 
 /*
@@ -449,18 +411,44 @@ void setup() {
   lcd.begin(16, 2);
   Serial.begin(9600);
 
-  // Configura os pinos dos leds
+  /* PS: Aqui define o tempo de duracao da bomba */
+  temporizador.seconds = 0;
+  temporizador.minutes = 1;
+  temporizador.hours = 0;
+  temporizador.time_interval = 1000;
+
+  /* Emite energia em todos os cabos de defusagem, certo ou errado */
+  pinMode(A14, OUTPUT);
+  pinMode(A13, INPUT);
+  pinMode(A12, OUTPUT);
+  pinMode(A11, INPUT);
+  pinMode(A10, OUTPUT);
+  pinMode(A9, INPUT);
+  pinMode(A7, OUTPUT);
+  pinMode(A6, INPUT);
+  pinMode(A5, OUTPUT);
+  pinMode(A4, INPUT);
+  pinMode(A3, OUTPUT);
+  pinMode(A2, INPUT);
+  pinMode(A1, OUTPUT);
+  pinMode(A0, INPUT);
+
+  /* PS: Aqui define os fios para defusagem (certo e o errado)*/
+  // Emite nas portas de OUTPUT
+  analogWrite(A14, 255);
+  analogWrite(A12, 255);
+  analogWrite(A10, 255);
+  analogWrite(A7, 255);
+  analogWrite(A5, 255);
+  analogWrite(A3, 255);
+  analogWrite(A1, 255);
 
   // Inicializa o display com animacao
   inicializando_display();
 
   // Dispara 10 beeps na inicializacao
   for (int i=0; i<10; i++) {
-    pisca_led(led.verde, 25);
     beep();
-    pisca_led(led.amarelo, 25);
-    delay(50);
-    pisca_led(led.vermelho, 25);
     delay(50);
   }
 
@@ -563,15 +551,9 @@ void setup() {
   if (senha_correta == 1) {
     lcd.print("Activated!");
   } else {
-    lcd.print("Not activared!");
+    bomba_explodiu();
   }
 
-  /* PS: Aqui define o tempo de duracao da bomba */
-  temporizador.seconds = 0;
-  temporizador.minutes = 1;
-  temporizador.hours = 0;
-  temporizador.time_interval = 1000;
-  
 }
 
 
@@ -580,14 +562,9 @@ void setup() {
 void loop() {
   //
   // Chama o timer aqui
-  if(senha_correta ==1) {
+  if(senha_correta == 1) {
     timer();
     defuse();
-  } else {
-    pinMode(led.vermelho, OUTPUT);
-    lcd.setCursor(0, 1);
-    lcd.print("Restart the bomb");
-    delay(500);    
   }
 }
 
